@@ -50,21 +50,30 @@ if seating_file and security_file:
         st.markdown("🔥 **Top 5 Most Frequent Visitors:**")
         st.dataframe(most_frequent.rename_axis("Cardholder").reset_index(name="Punch Count"))
 
-        # 🔍 Seating with Days Visited
+        # ✅ Seating with Days Visited
         st.subheader("✅ Seating with Days Visited")
         st.dataframe(seating_with_days)
 
-        # 🚨 Employees with <30% attendance
+        # ⚠️ Employees with <30% Attendance (Safe column check)
+        st.subheader("⚠️ Employees with < 30% Attendance")
         max_days = seating_with_days['Days_Visited'].max()
         threshold = 0.3 * max_days
         low_attendance = seating_with_days[seating_with_days['Days_Visited'] < threshold]
 
-        st.subheader(f"⚠️ Employees with < 30% Attendance (Less than {int(threshold)} Days)")
-        st.dataframe(low_attendance[['EMPLOYEE ID (Security)', 'EMPLOYEE NAME', 'Department', 'Days_Visited']])
+        # Pick safe columns to display
+        available_cols = seating_with_days.columns
+        target_cols = ['EMPLOYEE ID (Security)', 'EMPLOYEE NAME', 'Department', 'Days_Visited']
+        valid_cols = [col for col in target_cols if col in available_cols]
+
+        if valid_cols:
+            st.dataframe(low_attendance[valid_cols])
+        else:
+            st.warning("⚠️ Could not find expected columns to display. Showing raw data.")
+            st.dataframe(low_attendance)
 
         # 📊 Department-wise Count
-        dept_count = seating_df.groupby('Department').size().reset_index(name='Employee Count')
         st.subheader("🏢 Department-wise Employee Count")
+        dept_count = seating_df.groupby('Department').size().reset_index(name='Employee Count')
         st.bar_chart(dept_count.set_index('Department'))
 
         # 🕵️ Visitors not in seating
