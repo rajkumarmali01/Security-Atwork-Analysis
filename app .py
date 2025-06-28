@@ -21,7 +21,7 @@ if seating_file and security_file:
         security_df['Cardholder'] = security_df['Cardholder'].astype(str).str.strip()
         seating_df['EMPLOYEE ID (Security)'] = seating_df['EMPLOYEE ID (Security)'].astype(str).str.strip()
 
-        # 1️⃣ Days Visited
+        # 1️⃣ Days Visited (Seating Employees)
         days_count = security_df.groupby('Cardholder')['Date'].nunique().reset_index()
         days_count.columns = ['EMPLOYEE ID (Security)', 'Days_Visited']
 
@@ -36,6 +36,11 @@ if seating_file and security_file:
 
         visitor_df = security_df[security_df['Cardholder'].isin(only_visitors)].copy()
         visitor_df = visitor_df[['Cardholder', 'First name', 'Last name', 'Date']].drop_duplicates()
+
+        # Add Days Visited for each visitor
+        visitor_days = visitor_df.groupby('Cardholder')['Date'].nunique().reset_index()
+        visitor_days.columns = ['Cardholder', 'Days_Visited']
+        visitor_df = pd.merge(visitor_df, visitor_days, on='Cardholder', how='left')
 
         # 3️⃣ Overall Summary
         total_employees = len(seating_df)
@@ -54,24 +59,7 @@ if seating_file and security_file:
         st.subheader("✅ Seating with Days Visited")
         st.dataframe(seating_with_days)
 
-        # ⚠️ Employees with <30% Attendance (Safe column check)
-        st.subheader("⚠️ Employees with < 30% Attendance")
-        max_days = seating_with_days['Days_Visited'].max()
-        threshold = 0.3 * max_days
-        low_attendance = seating_with_days[seating_with_days['Days_Visited'] < threshold]
-
-        # Pick safe columns to display
-        available_cols = seating_with_days.columns
-        target_cols = ['EMPLOYEE ID (Security)', 'EMPLOYEE NAME', 'Department', 'Days_Visited']
-        valid_cols = [col for col in target_cols if col in available_cols]
-
-        if valid_cols:
-            st.dataframe(low_attendance[valid_cols])
-        else:
-            st.warning("⚠️ Could not find expected columns to display. Showing raw data.")
-            st.dataframe(low_attendance)
-
-        # 📊 Department-wise Count
+        # 🏢 Department-wise Count
         st.subheader("🏢 Department-wise Employee Count")
         dept_count = seating_df.groupby('Department').size().reset_index(name='Employee Count')
         st.bar_chart(dept_count.set_index('Department'))
@@ -90,7 +78,6 @@ if seating_file and security_file:
                 "Value": [total_employees, total_visitor_only, total_unique_attendees]
             })
             summary_df.to_excel(writer, index=False, sheet_name="Summary")
-            low_attendance.to_excel(writer, index=False, sheet_name="Low Attendance")
             dept_count.to_excel(writer, index=False, sheet_name="Dept Wise Count")
 
         with open(output_path, "rb") as f:
