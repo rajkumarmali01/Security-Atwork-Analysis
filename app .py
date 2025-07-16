@@ -21,10 +21,17 @@ if seating_file and security_file:
         security_df['Cardholder'] = security_df['Cardholder'].astype(str).str.strip()
         seating_df['Employee ID'] = seating_df['Employee ID'].astype(str).str.strip()
 
-        # ✅ OUTPUT 1: Seating with Daily Visit Records
+        # ✅ Output 1: Seating with Daily Visit Records + Days_Visited
+        # Step 1: Unique daily visit rows
         visits = security_df[['Cardholder', 'Date']].drop_duplicates()
         visits.columns = ['Employee ID', 'Date']
+
+        # Step 2: Calculate total Days_Visited per employee
+        days_visited = visits.groupby('Employee ID').size().reset_index(name='Days_Visited')
+
+        # Step 3: Merge with seating info
         seating_with_dates = pd.merge(visits, seating_df, on='Employee ID', how='inner')
+        seating_with_dates = pd.merge(seating_with_dates, days_visited, on='Employee ID', how='left')
         seating_with_dates = seating_with_dates.sort_values(by=['Date', 'Employee ID'])
 
         st.subheader("✅ 1. Seating with Daily Visit Records")
@@ -33,7 +40,7 @@ if seating_file and security_file:
         seating_csv = seating_with_dates.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Download Daily Visits CSV", seating_csv, "Seating_Daily_Visits.csv", "text/csv")
 
-        # ✅ OUTPUT 2: Visitor-Only List
+        # ✅ Output 2: Visitor-Only List
         seating_ids = set(seating_df['Employee ID'].astype(str))
         visitor_ids = set(security_df['Cardholder'].astype(str))
         only_visitors = visitor_ids - seating_ids
@@ -51,7 +58,7 @@ if seating_file and security_file:
         visitor_csv = visitor_df.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Download Visitor-Only CSV", visitor_csv, "Visitor_Only_List.csv", "text/csv")
 
-        # ✅ OUTPUT 3: Daily Attendance Summary (Bifurcation)
+        # ✅ Output 3: Daily Attendance Bifurcation
         security_df['Employee Type'] = security_df['Cardholder'].apply(
             lambda x: "AtWork" if x in seating_ids else "Visitor"
         )
@@ -73,7 +80,7 @@ if seating_file and security_file:
         summary_csv = daily_summary.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Download Daily Summary CSV", summary_csv, "Daily_Attendance_Bifurcation.csv", "text/csv")
 
-        # ✅ Excel Report Export (All 3 Outputs)
+        # ✅ Excel Report Export
         output_path = "/tmp/full_attendance_report.xlsx"
         with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
             seating_with_dates.to_excel(writer, index=False, sheet_name="Seating Daily Visits")
