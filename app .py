@@ -15,26 +15,41 @@ if seating_file and security_file:
     security_df = pd.read_csv(security_file)
 
     try:
-        # 🧹 Clean and standardize
+        # 🧹 Clean and prepare
         security_df['Event timestamp'] = pd.to_datetime(security_df['Event timestamp'], errors='coerce')
         security_df['Date'] = security_df['Event timestamp'].dt.date
         security_df['Cardholder'] = security_df['Cardholder'].astype(str).str.strip()
         seating_df['Employee ID'] = seating_df['Employee ID'].astype(str).str.strip()
 
-        # ✅ Output 1: Seating with Daily Visit Records + Days_Visited
-        # Step 1: Unique daily visit rows
+        # ✅ Output 1: Seating with Daily Visit Records (include all employees)
+
+        # Step 1: Unique visits (employee + date)
         visits = security_df[['Cardholder', 'Date']].drop_duplicates()
         visits.columns = ['Employee ID', 'Date']
 
-        # Step 2: Calculate total Days_Visited per employee
+        # Step 2: Total Days_Visited per employee
         days_visited = visits.groupby('Employee ID').size().reset_index(name='Days_Visited')
 
-        # Step 3: Merge with seating info
-        seating_with_dates = pd.merge(visits, seating_df, on='Employee ID', how='inner')
-        seating_with_dates = pd.merge(seating_with_dates, days_visited, on='Employee ID', how='left')
-        seating_with_dates = seating_with_dates.sort_values(by=['Date', 'Employee ID'])
+        # Step 3: Merge for visited employees
+        visited_seating = pd.merge(visits, seating_df, on='Employee ID', how='inner')
+        visited_seating = pd.merge(visited_seating, days_visited, on='Employee ID', how='left')
 
-        st.subheader("✅ 1. Seating with Daily Visit Records")
+        # Step 4: Merge all employees with days visited
+        all_employees = pd.merge(seating_df, days_visited, on='Employee ID', how='left')
+        all_employees['Days_Visited'] = all_employees['Days_Visited'].fillna(0).astype(int)
+        all_employees['Date'] = all_employees['Employee ID'].apply(
+            lambda eid: "—" if eid not in visited_seating['Employee ID'].values else None
+        )
+
+        # Step 5: Combine both visited + non-visited
+        combined = pd.concat([
+            visited_seating,
+            all_employees[all_employees['Date'] == "—"]
+        ], ignore_index=True)
+
+        seating_with_dates = combined.sort_values(by=['Employee ID', 'Date'])
+
+        st.subheader("✅ 1. Seating with Daily Visit Records (All Employees)")
         st.dataframe(seating_with_dates)
 
         seating_csv = seating_with_dates.to_csv(index=False).encode('utf-8')
@@ -80,7 +95,7 @@ if seating_file and security_file:
         summary_csv = daily_summary.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Download Daily Summary CSV", summary_csv, "Daily_Attendance_Bifurcation.csv", "text/csv")
 
-        # ✅ Excel Report Export
+        # ✅ Excel Export
         output_path = "/tmp/full_attendance_report.xlsx"
         with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
             seating_with_dates.to_excel(writer, index=False, sheet_name="Seating Daily Visits")
