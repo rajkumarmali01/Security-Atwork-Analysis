@@ -34,17 +34,18 @@ if seating_file and security_file:
         visited_seating = pd.merge(visits, seating_df, on='Employee ID', how='inner')
         visited_seating = pd.merge(visited_seating, days_visited, on='Employee ID', how='left')
 
-        # Step 4: Merge all employees with days visited
+        # Step 4: Merge all employees with Days_Visited, add "Not Available" for Date if never visited
         all_employees = pd.merge(seating_df, days_visited, on='Employee ID', how='left')
         all_employees['Days_Visited'] = all_employees['Days_Visited'].fillna(0).astype(int)
-        all_employees['Date'] = all_employees['Employee ID'].apply(
-            lambda eid: "—" if eid not in visited_seating['Employee ID'].values else None
+        all_employees['Date'] = all_employees.apply(
+            lambda row: "Not Available" if row['Days_Visited'] == 0 else None,
+            axis=1
         )
 
         # Step 5: Combine both visited + non-visited
         combined = pd.concat([
             visited_seating,
-            all_employees[all_employees['Date'] == "—"]
+            all_employees[all_employees['Date'] == "Not Available"]
         ], ignore_index=True)
 
         seating_with_dates = combined.sort_values(by=['Employee ID', 'Date'])
