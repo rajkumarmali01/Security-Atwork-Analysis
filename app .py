@@ -11,10 +11,11 @@ seating_file = st.file_uploader("📌 Upload AtWork Seating CSV", type="csv")
 security_file = st.file_uploader("🔐 Upload Security Punch CSV", type="csv")
 
 if seating_file and security_file:
-    seating_df = pd.read_csv(seating_file)
-    security_df = pd.read_csv(security_file)
-
     try:
+        # ✅ Read with encoding fix
+        seating_df = pd.read_csv(seating_file, encoding='utf-8', errors='replace')
+        security_df = pd.read_csv(security_file, encoding='utf-8', errors='replace')
+
         # 🧹 Clean and prepare
         security_df['Event timestamp'] = pd.to_datetime(security_df['Event timestamp'], errors='coerce')
         security_df['Date'] = security_df['Event timestamp'].dt.date
