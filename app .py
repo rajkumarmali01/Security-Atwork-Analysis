@@ -1,76 +1,82 @@
 import streamlit as st
 import pandas as pd
-import io
+from io import StringIO
+from datetime import datetime
 
-st.set_page_config(page_title="AtWork Attendance Analyzer", layout="wide")
-st.title("🏢 AtWork Attendance Analyzer")
+st.set_page_config(page_title="Atwork Attendance Analyzer", layout="wide")
+st.title("🏢 Atwork Employee Attendance Analyzer")
 
-# Upload Files
-seating_file = st.file_uploader("📋 Upload AtWork Seating CSV", type="csv")
-security_file = st.file_uploader("🔐 Upload Security Punch CSV", type="csv")
+# Upload files
+seating_file = st.file_uploader("Upload Atwork Seating CSV", type="csv")
+punch_file = st.file_uploader("Upload Punch In/Out CSV", type="csv")
 
-if seating_file and security_file:
+if seating_file and punch_file:
     try:
-        # Read and decode content safely
-        seating_content = seating_file.read().decode("utf-8", errors="ignore")
-        seating_df = pd.read_csv(io.StringIO(seating_content))
+        # Manual decoding for seating file
+        seating_text = seating_file.read().decode("latin1")
+        seating_df = pd.read_csv(StringIO(seating_text))
+        seating_df.columns = seating_df.columns.str.strip()
 
-        security_content = security_file.read().decode("utf-8", errors="ignore")
-        security_df = pd.read_csv(io.StringIO(security_content))
+        # Manual decoding for punch file
+        punch_text = punch_file.read().decode("latin1")
+        punch_df = pd.read_csv(StringIO(punch_text))
+        punch_df.columns = punch_df.columns.str.strip()
 
-        # Clean security file
-        security_df['Event timestamp'] = pd.to_datetime(security_df['Event timestamp'], errors='coerce')
-        security_df['Date'] = security_df['Event timestamp'].dt.date
-        security_df['Cardholder'] = security_df['Cardholder'].astype(str).str.strip()
+        # Standardize names and timestamps
+        seating_df["Employee ID"] = seating_df["Employee ID"].astype(str).str.strip()
+        seating_df["Employee Name"] = seating_df["Employee Name"].astype(str).str.strip()
+        punch_df["Cardholder"] = punch_df["Cardholder"].astype(str).str.strip()
+        punch_df["Event timestamp"] = pd.to_datetime(punch_df["Event timestamp"], errors="coerce")
+        punch_df = punch_df.dropna(subset=["Event timestamp"])
+        punch_df["Date"] = punch_df["Event timestamp"].dt.date
 
-        # Clean seating file
-        seating_df['Employee ID'] = seating_df['Employee ID'].astype(str).str.strip()
+        # Get in-time and out-time by day
+        first_last = punch_df.groupby(["Cardholder", "Date"]).agg(
+            In_Time=("Event timestamp", "min"),
+            Out_Time=("Event timestamp", "max")
+        ).reset_index()
+        first_last["Visit"] = 1
 
-        # Output 1: Seating + Days_Visited + Date
-        visits_df = security_df[['Cardholder', 'Date']].drop_duplicates()
-        days_visited = visits_df.groupby('Cardholder').size().reset_index(name='Days_Visited')
-        last_dates = visits_df.groupby('Cardholder')['Date'].max().reset_index(name='Last_Visit_Date')
-        visit_summary = pd.merge(days_visited, last_dates, on='Cardholder', how='outer')
+        # Count Days Visited
+        visit_count = first_last.groupby("Cardholder")["Visit"].sum().reset_index(name="Days_Visited")
 
-        result_df = seating_df.copy()
-        result_df = result_df.merge(visit_summary, how='left', left_on='Employee ID', right_on='Cardholder')
-        result_df['Days_Visited'] = result_df['Days_Visited'].fillna(0).astype(int)
-        result_df['Date'] = result_df['Last_Visit_Date'].fillna("").astype(str)
-        result_df.drop(columns=['Cardholder', 'Last_Visit_Date'], inplace=True)
+        # Date mapping
+        date_map = first_last.groupby("Cardholder")["Date"].apply(lambda x: ", ".join(sorted(x.astype(str)))).reset_index(name="Date_List")
 
-        st.subheader("✅ 1. Seating with Visit Info (Preserved All Rows)")
-        st.dataframe(result_df)
-        st.download_button("📥 Download Seating CSV", result_df.to_csv(index=False).encode('utf-8'), "Seating_Daily_Visits.csv")
+        # Merge visit_count and date_map
+        summary_df = seating_df.copy()
+        summary_df = summary_df.merge(visit_count, how="left", left_on="Employee Name", right_on="Cardholder")
+        summary_df = summary_df.merge(date_map, how="left", left_on="Employee Name", right_on="Cardholder")
+        summary_df.drop(columns=["Cardholder_x", "Cardholder_y"], errors="ignore", inplace=True)
+        summary_df["Days_Visited"] = summary_df["Days_Visited"].fillna(0).astype(int)
+        summary_df["Date"] = summary_df["Date_List"].fillna("")
+        summary_df.drop(columns=["Date_List"], inplace=True)
 
-        # Output 2: Visitors Only
-        seating_ids = set(seating_df['Employee ID'].astype(str))
-        visitor_ids = set(security_df['Cardholder'].astype(str))
-        only_visitors = visitor_ids - seating_ids
+        st.subheader("📘 Seating with Days Visited and Dates")
+        st.dataframe(summary_df)
+        st.download_button("⬇️ Download Seating_Daily_Visits", data=summary_df.to_csv(index=False), file_name="Seating_Daily_Visits.csv")
 
-        visitor_df = security_df[security_df['Cardholder'].isin(only_visitors)].copy()
-        visitor_df = visitor_df[['Cardholder', 'First name', 'Last name', 'Date']].drop_duplicates()
-        visitor_days = visitor_df.groupby('Cardholder')['Date'].nunique().reset_index(name='Days_Visited')
-        visitor_df = pd.merge(visitor_df, visitor_days, on='Cardholder', how='left')
+        # Visitor-Only (not in seating)
+        known_names = set(seating_df["Employee Name"])
+        visitor_only = first_last[~first_last["Cardholder"].isin(known_names)].copy()
+        visitor_only.rename(columns={"Cardholder": "Visitor Name"}, inplace=True)
 
-        st.subheader("🕵️‍♂️ 2. Visitor-Only List (Not in Seating)")
-        st.dataframe(visitor_df)
-        st.download_button("📥 Download Visitor CSV", visitor_df.to_csv(index=False).encode('utf-8'), "Visitor_Only_List.csv")
+        st.subheader("🛂 Visitor Only List (Not in Seating File)")
+        st.dataframe(visitor_only)
+        st.download_button("⬇️ Download Visitor_Only_List", data=visitor_only.to_csv(index=False), file_name="Visitor_Only_List.csv")
 
-        # Output 3: Daily Attendance Summary
-        security_df['Employee Type'] = security_df['Cardholder'].apply(lambda x: "AtWork" if x in seating_ids else "Visitor")
-        daily_summary = (
-            security_df[['Cardholder', 'Date', 'Employee Type']]
-            .drop_duplicates()
-            .groupby(['Date', 'Employee Type'])
-            .size()
-            .unstack(fill_value=0)
-            .reset_index()
-        )
-        daily_summary['Total_Employees_Present'] = daily_summary.get('AtWork', 0) + daily_summary.get('Visitor', 0)
+        # Daily Attendance Bifurcation
+        all_punch = first_last.copy()
+        all_punch["Type"] = all_punch["Cardholder"].apply(lambda x: "Atwork Employee" if x in known_names else "Visitor")
+        attendance_summary = all_punch.groupby(["Date", "Type"]).size().unstack(fill_value=0).reset_index()
+        if "Atwork Employee" not in attendance_summary.columns:
+            attendance_summary["Atwork Employee"] = 0
+        if "Visitor" not in attendance_summary.columns:
+            attendance_summary["Visitor"] = 0
 
-        st.subheader("📆 3. Daily Attendance Summary")
-        st.dataframe(daily_summary)
-        st.download_button("📥 Download Daily Summary CSV", daily_summary.to_csv(index=False).encode('utf-8'), "Daily_Attendance_Bifurcation.csv")
+        st.subheader("📊 Daily Attendance Bifurcation (Atwork vs Visitor)")
+        st.dataframe(attendance_summary)
+        st.download_button("⬇️ Download Daily_Attendance_Bifurcation", data=attendance_summary.to_csv(index=False), file_name="Daily_Attendance_Bifurcation.csv")
 
     except Exception as e:
-        st.error(f"❌ Error: {e}")
+        st.error(f"❌ Error processing files: {e}")
